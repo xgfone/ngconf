@@ -1,6 +1,6 @@
 # ngconf [![Build Status](https://travis-ci.org/xgfone/ngconf.svg?branch=master)](https://travis-ci.org/xgfone/ngconf) [![GoDoc](https://godoc.org/github.com/xgfone/ngconf?status.svg)](http://godoc.org/github.com/xgfone/ngconf) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](https://raw.githubusercontent.com/xgfone/ngconf/master/LICENSE)
 
-The package `ngconf` supplies a generic parser of the `NGINX` config format, and supports Go `1.x`.
+The package `ngconf` supplies a generic parser of the `NGINX` config format referring to the implementation [python-nginx](https://github.com/radiosilence/python-nginx), and supports Go `1.x`.
 
 ## Example
 
