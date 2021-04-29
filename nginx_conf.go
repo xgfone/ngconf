@@ -29,14 +29,9 @@ var (
 
 type nodes []*Node
 
-func (ns nodes) Len() int      { return len(ns) }
-func (ns nodes) Swap(i, j int) { ns[i], ns[j] = ns[j], ns[i] }
-func (ns nodes) Less(i, j int) bool {
-	if ns[j] == nil {
-		return true
-	}
-	return false
-}
+func (ns nodes) Len() int           { return len(ns) }
+func (ns nodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
+func (ns nodes) Less(i, j int) bool { return ns[j] == nil }
 
 type nodeStack struct {
 	nodes []*Node
@@ -107,14 +102,14 @@ func (n *Node) getChildren(indent int, ctx *nodeDumpCtx) string {
 		} else {
 			ctx.BlockStart = false
 		}
-		ss[i] = node.dump(indent, ctx)
+		ss[i] = node.dump(indent, ctx, n)
 	}
 	return strings.Join(ss, "\n")
 }
 
 // Dump converts the Node to string.
 func (n *Node) Dump(indent int) string {
-	return n.dump(indent, &nodeDumpCtx{FirstBlock: true})
+	return n.dump(indent, &nodeDumpCtx{FirstBlock: true}, n)
 }
 
 type nodeDumpCtx struct {
@@ -124,7 +119,7 @@ type nodeDumpCtx struct {
 	LastBlockEnd bool
 }
 
-func (n *Node) dump(indent int, ctx *nodeDumpCtx) string {
+func (n *Node) dump(indent int, ctx *nodeDumpCtx, parent *Node) string {
 	var prefix, spaces string
 	for i := indent; i > 0; i-- {
 		spaces += "    "
@@ -132,8 +127,12 @@ func (n *Node) dump(indent int, ctx *nodeDumpCtx) string {
 
 	lastComment := ctx.HasComment
 	ctx.HasComment = strings.HasPrefix(n.Directive, "#")
-	if ctx.HasComment && !lastComment {
-		if !ctx.BlockStart {
+	if ctx.HasComment {
+		if !lastComment {
+			if !ctx.BlockStart {
+				prefix = "\n"
+			}
+		} else if !parent.Root && ctx.LastBlockEnd {
 			prefix = "\n"
 		}
 	} else if ctx.LastBlockEnd {
@@ -141,6 +140,16 @@ func (n *Node) dump(indent int, ctx *nodeDumpCtx) string {
 	}
 
 	if len(n.Children) == 0 {
+		if ctx.HasComment {
+			if len(n.Args) == 0 {
+				return fmt.Sprintf("%s%s%s", prefix, spaces, n.Directive)
+			}
+			return fmt.Sprintf("%s%s%s %s", prefix, spaces, n.Directive, strings.Join(n.Args, " "))
+		}
+
+		if len(n.Args) == 0 {
+			return fmt.Sprintf("%s%s%s;", prefix, spaces, n.Directive)
+		}
 		return fmt.Sprintf("%s%s%s %s;", prefix, spaces, n.Directive, strings.Join(n.Args, " "))
 	} else if n.Root {
 		return n.getChildren(indent, ctx)
@@ -264,7 +273,7 @@ func (n *Node) Del(directive string, args ...string) {
 	}
 
 	if count > 0 {
-		sort.Sort(nodes(n.Children))
+		sort.Stable(nodes(n.Children))
 		n.Children = n.Children[:_len-count]
 	}
 }
@@ -273,12 +282,37 @@ func (n *Node) Del(directive string, args ...string) {
 func Decode(s string) (*Node, error) {
 	var err error
 	var node *Node
+	var isComment bool
+
 	stack := &nodeStack{}
 	currentWord := []rune{}
 	currentStmt := []string{}
 	currentBlock, _ := newNode(nil, true)
 
 	for _, char := range s {
+		if isComment {
+			switch char {
+			case '\n':
+				currentStmt = append(currentStmt, string(currentWord))
+				if node, err = newNode(currentStmt); err != nil {
+					return nil, err
+				}
+
+				isComment = false
+				currentWord = nil
+				currentStmt = nil
+				currentBlock.appendChild(node)
+			case ' ', '\t':
+				// End the current word.
+				currentStmt = append(currentStmt, string(currentWord))
+				currentWord = nil
+			default:
+				currentWord = append(currentWord, char)
+			}
+
+			continue
+		}
+
 		switch char {
 		case '{':
 			// Put the current block on the stack, start a new block.
@@ -318,9 +352,22 @@ func Decode(s string) (*Node, error) {
 				currentStmt = append(currentStmt, string(currentWord))
 				currentWord = nil
 			}
+		case '#':
+			isComment = true
+			currentWord = append(currentWord, char)
 		default:
 			// Add current character onto the current word.
 			currentWord = append(currentWord, char)
+		}
+	}
+
+	// Support the last line is the comment
+	if len(currentWord) > 0 {
+		currentStmt = append(currentStmt, string(currentWord))
+	}
+	if len(currentStmt) > 0 {
+		if node, err = newNode(currentStmt); err == nil {
+			currentBlock.appendChild(node)
 		}
 	}
 
